@@ -1,0 +1,191 @@
+let locs = ([
+  ['STSC1', 'Santa Rosa', 81, 137],
+  ['SARC1', 'San Rafael', 83, 116],
+  ['KENC1', 'Kentfield', 82, 114],
+  ['NSHC1', 'Napa State Hospital', 95, 126],
+  ['RICC1', 'Richmond', 87, 111],
+  ['LIVC1', 'Livermore', 107, 96],
+  ['SFOC1', 'San Francisco Downtown', 84, 105],
+  ['KSFO', 'San Francisco Airport', 85, 98],
+  ['RWCC1', 'Redwood City', 88, 91],
+  ['HMBC1', 'Half Moon Bay', 81, 91],
+  ['OAMC1', 'Oakland Museum', 90, 105],
+  ['SJCthr', 'San Jose', 97, 83],
+  ['GILC1', 'Gilroy', 107, 64],
+  ['SCRC1', 'Santa Cruz*', 91, 67],
+  ['KSNS', 'Salinas Airport',102, 50],
+  ['KICC1', 'King City', 115, 25]
+])
+
+var numRows = Object.keys(locs).length;
+var data = {};
+
+function main() {
+  const d1 = new Date()
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var checkSheet = spreadsheet.getSheetByName("Record Checker");
+
+  var siteNames = checkSheet.getRange("A3:A" + (numRows + 2));
+  var daysOfWeek = checkSheet.getRange("B2:H2");
+  var dataRange = checkSheet.getRange("B3:H18");
+  var dataVals = dataRange.getValues();
+
+  dataRange.clearContent();
+  siteNames.clearContent();
+
+  for (var i = 0; i < numRows; i++) {
+
+    var color = i % 2 === 0 ? '#A1A1A1' : '#FFFFFF'; // Grey and White alternating
+    dataRange.offset(i, 0, 1, dataRange.getNumColumns()).setBackground(color);
+    siteNames.offset(i, 0, 1, dataRange.getNumColumns()).setBackground(color);
+  
+    var site = locs[i][0];
+    var siteLong = locs[i][1];
+    var x = locs[i][2];
+    var y = locs[i][3];
+    
+    var cell = siteNames.getCell(i + 1, 1);
+    cell.setValue(siteLong + ' (' + site + ')');
+
+    var fcst = getFcstTemps(site, x, y);
+    var recs = getDailyRecs(site, fcst.period[0])
+    const hi_diff = recs.hi_recs.map((value, index) => value - fcst.maxF[index]);
+    const lo_diff = recs.lo_recs.map((value, index) => fcst.minF[index] - value);
+    const hi_dep_norm = recs.hi_norm.map((value, index) => fcst.maxF[index] - value);
+    const lo_dep_norm = recs.lo_norm.map((value, index) => fcst.minF[index] - value);
+    Logger.log(site)
+    // if (site === "SARC1" || site == "STSC1") {
+    //   Logger.log(fcst.maxF)
+    // }
+
+    if (i == 0) {
+      var dow = getDow(fcst.period[0].getDay());
+      daysOfWeek.setValues([dow]);
+    }
+
+    dataVals[i] = [fcst.maxF.map((maxFValue, index) => maxFValue + '/' + fcst.minF[index])][0];
+
+    var hiDiffRange = dataRange.offset(i, 0, 1, dataRange.getNumColumns());
+    var loDiffRange = dataRange.offset(i, 0, 1, dataRange.getNumColumns());
+
+    // Apply background color based on hi_diff values
+    for (var j = 0; j < hi_diff.length; j++) {
+      var diffValueHi = hi_diff[j];
+      if (diffValueHi >= 1 && diffValueHi <= 3) {
+        hiDiffRange.getCell(1, j + 1).setBackground('#FFCCCC'); // Light red
+      } else if (diffValueHi <= 0) {
+        hiDiffRange.getCell(1, j + 1).setBackground('#FF0000'); // Red
+        // hiDiffRange.getCell(1, j + 1).setFontColor('#FFFFFF');
+      }
+      var diffValueLo = lo_diff[j];
+      if (diffValueLo >= 1 && diffValueLo <= 3) {
+        loDiffRange.getCell(1, j + 1).setBackground('#B0ADFF'); // Light blue
+      } else if (diffValueLo <= 0) {
+        loDiffRange.getCell(1, j + 1).setBackground('#1100FF'); // Blue
+        // loDiffRange.getCell(1, j + 1).setFontColor('#FFFFFF');
+      } 
+    }
+    data[site] = {
+      maxF: fcst.maxF,
+      minF: fcst.minF,
+      maxR: recs.hi_recs,
+      maxRyr: recs.hi_yr,
+      minR: recs.lo_recs,
+      minRyr: recs.lo_yr
+    };
+  }
+  dataRange.setValues(dataVals);
+  PropertiesService.getScriptProperties().setProperty('data', JSON.stringify(data));
+  var lastCell = checkSheet.getRange('I1');
+  var update = Utilities.formatDate(new Date(), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "EEE, MMM d, yyyy HH:mm");
+  lastCell.setValue('Updated:' + ' ' + update);
+}
+
+function createNewSheetWithDate(selectedDate, selectedRadio) {
+  data = JSON.parse(PropertiesService.getScriptProperties().getProperty('data'));
+
+  var currentDate = new Date(); // assuming the script runs "today"
+  var currentDayIndex = currentDate.getDay(); // This will give you a number between 0 (Sunday) and 6 (Saturday)
+  var selectedDayName = selectedDate.split(' ')[0];
+  var selectedDayNum = selectedDate.split(' ')[1];
+  var dayNameMap = { 'Sun': 'Sunday', 'Mon': 'Monday', 'Tue': 'Tuesday', 'Wed': 'Wednesday', 'Thu': 'Thursday', 'Fri': 'Friday', 'Sat': 'Saturday' };
+  var daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  selectedDayName = dayNameMap[selectedDayName] || selectedDayName;
+  var selectedDayIndex = daysOfWeek.indexOf(selectedDayName);
+  var forecastIndex = (selectedDayIndex - currentDayIndex + 7) % 7;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var template = ss.getSheetByName("Template");
+  var newSheet = template.copyTo(ss);
+  newSheet.setName("RER Worksheet " + selectedDate);
+
+  const siteNames = newSheet.getRange("A3:A" + (numRows + 2));
+  const dataRange = newSheet.getRange("B3:G" + (numRows + 2));
+  const recRange = newSheet.getRange("B3:B" + (numRows + 2));
+  const yearRange = newSheet.getRange("C3:C" + (numRows + 2));
+  const fcstRange = newSheet.getRange("D3:D" + (numRows + 2));
+  const headRange = newSheet.getRange("A1:G1");
+  
+  headRange.getCell(1, 2).setValue('Date: ' + selectedDayNum)
+  headRange.getCell(1, 3).setValue('Day of the Week: ' + daysOfWeek[selectedDayIndex])
+
+  dataRange.clearContent();
+  siteNames.clearContent();
+
+  for (var i = 0; i < numRows; i++) {
+    var color = i % 2 === 0 ? '#A1A1A1' : '#FFFFFF'; // Grey and White alternating
+    dataRange.offset(i, 0, 1, dataRange.getNumColumns()).setBackground(color);
+    siteNames.offset(i, 0, 1, dataRange.getNumColumns()).setBackground(color);
+    var site = locs[i][0];
+    var siteLong = locs[i][1];
+    var x = locs[i][2];
+    var y = locs[i][3];
+    var cell = siteNames.getCell(i + 1, 1);
+    cell.setValue(siteLong + ' (' + site + ')');
+
+    var record, year, fcst;
+    if (selectedRadio === 'High') {
+      record = data[site].maxR[forecastIndex];
+      year = data[site].maxRyr[forecastIndex];
+      fcst = data[site].maxF[forecastIndex];
+    }
+    if (selectedRadio === 'Low') {
+      record = data[site].minR[forecastIndex];
+      year = data[site].minRyr[forecastIndex];
+      fcst = data[site].minF[forecastIndex];
+    }
+
+    recRange.getCell(i + 1, 1).setValue(record);
+    yearRange.getCell(i + 1, 1).setValue(year);
+    fcstRange.getCell(i + 1, 1).setValue(fcst);
+  }
+}
+
+function getFcstDates() {
+  var fcst = getFcstTemps(locs[0][0], locs[0][2], locs[0][3]);
+  const dates = fcst.period.map(date => formatDate(date))
+  return dates;
+}
+
+function getDow(d1) {
+  var daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  var currentDayIndex = d1;
+  // var currentDayIndex = new Date().getDay();
+  var next7Days = [];
+
+  for (var i = 0; i < 7; i++) {
+    var dayIndex = (currentDayIndex + i) % 7;
+    var day = daysOfWeek[dayIndex];
+    next7Days.push(day);
+  }
+  return next7Days;
+}
+
+function formatDate(date) {
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayOfWeek = daysOfWeek[date.getDay()];
+  const month = date.getMonth() + 1;  // Months are 0-based in JavaScript
+  const day = date.getDate();
+  return `${dayOfWeek} ${month}/${day}`;
+}
+
