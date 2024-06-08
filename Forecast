@@ -1,0 +1,118 @@
+function getFcstTemps(site, x, y) {
+  if (site === 'KSJC') {
+    site = 'SJC_thr';
+  }
+
+  const url = `https://api.weather.gov/gridpoints/MTR/${x},${y}`;
+
+  const fetch_forecast = () => {
+    const options = {
+      method: 'get',
+      headers: {
+        'User-Agent': 'MTR_records_tool',
+      },
+    };
+
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const data = JSON.parse(response.getContentText());
+      return data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const retry_fetch_forecast = () => {
+    let attempts = 0;
+
+    while (attempts < 10) {
+      try {
+        return fetch_forecast();
+      } catch (error) {
+        attempts++;
+        console.log(`Retrying... Attempt ${attempts}`);
+      }
+    }
+
+    console.log(`!!!COULD NOT FETCH FORECAST FOR ${site}!!!`);
+    throw new Error(`Failed to fetch forecast for ${site}`);
+  };
+
+  const fcstData = retry_fetch_forecast();
+
+  const maxT = fcstData.properties.maxTemperature.values;
+  const minT = fcstData.properties.minTemperature.values;
+  const fcstUpdateTimeraw = fcstData.properties.updateTime;
+
+  let max_date = [];
+  let min_date = [];
+  const mx_fcst = [];
+  const mn_fcst = [];
+
+  const nextSevenDays = [];
+  const today = new Date(); // gets current date
+  
+  for (let i = 0; i < 7; i++) {
+    const futureDate = new Date(today);
+    futureDate.setDate(today.getDate() + i); // increment the date by i days
+    nextSevenDays.push(futureDate);
+  }
+
+  const day7 = nextSevenDays[nextSevenDays.length - 1].getDate();
+
+  for (let i = 0; i < maxT.length; i++) {
+    const date = new Date(maxT[i].validTime.substring(0,10))
+    date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+    max_date.push(date);
+  }
+  for (let i = 0; i< minT.length; i++) {
+    const date = new Date(minT[i].validTime.substring(0,10))
+    date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+    min_date.push(date);
+  }
+
+  let matchIndexMax = max_date.map(date => date.getDate()).indexOf(day7);
+  let matchIndexMin = min_date.map(date => date.getDate()).indexOf(day7);
+
+  if (matchIndexMax !== -1) {
+    for (let i = nextSevenDays.length - 1; i >= 0; i--) {
+      if (matchIndexMax < 0) {
+        break;
+      }
+      if (nextSevenDays.map(date => date.getDate())[i] === max_date.map(date => date.getDate())[matchIndexMax]) {
+        mx_fcst.unshift(maxT[matchIndexMax].value);
+
+        matchIndexMax--;
+      } else if (nextSevenDays.map(date => date.getDate())[i] < max_date.map(date => date.getDate())[matchIndexMax]) {
+        matchIndexMax--;
+        i++;
+      }
+    }
+  }
+
+  if (matchIndexMin !== -1) {
+    for (let i = nextSevenDays.length - 1; i >= 0; i--) {
+      if (matchIndexMin < 0) {
+        break;
+      }
+      if (nextSevenDays.map(date => date.getDate())[i] === min_date.map(date => date.getDate())[matchIndexMin]) {
+        mn_fcst.unshift(minT[matchIndexMin].value);
+
+        matchIndexMin--;
+      } else if (nextSevenDays.map(date => date.getDate())[i] < min_date.map(date => date.getDate())[matchIndexMin]) {
+        matchIndexMin--;
+        i++;
+      }
+    }
+  }
+  
+  return {
+    period: nextSevenDays,
+    maxF: mx_fcst.map(CtoF),
+    minF: mn_fcst.map(CtoF),
+  };
+}
+
+function CtoF(t) {
+  return Math.round(t * 1.8 + 32);
+}
