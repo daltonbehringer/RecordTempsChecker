@@ -1,0 +1,14 @@
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('RER Utilites')
+    .addItem('Create New RER Worksheet', 'showSidebar')
+    .addItem('Force Update Temps', 'main')
+    .addToUi();
+}  
+
+function showSidebar() {
+  var html = HtmlService.createHtmlOutputFromFile('buttons')
+      .setTitle('Create RER Worksheet')
+      .setWidth(300);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
