@@ -1,0 +1,203 @@
+function getDailyRecs(site, d1) {
+  var thr_tag = 0;
+  var ll = [];
+
+  // var site = 'KSFO'
+  // var d1 = new Date()
+
+  if (site == "KSJC" || site == "SJCthr") {
+    thr_tag = 1;
+    site = "SJCthr";
+    ll = [-121.8959, 37.3339];
+  }
+
+  site = site;
+
+  var input_dict = {
+    sid: site,
+    date: "por",
+    elems: [
+      {
+        name: "maxt",
+        interval: "dly",
+        duration: "dly",
+        smry: { reduce: "max", add: "date" },
+        smry_only: 1,
+        groupby: "year"
+      },
+      {
+        name: "maxt",
+        interval: "dly",
+        duration: "dly",
+        smry: { reduce: "max" },
+        normal: 1,
+        smry_only: 1,
+        groupby: "year"
+      },
+      {
+        name: "mint",
+        interval: "dly",
+        duration: "dly",
+        smry: { reduce: "min", add: "date" },
+        smry_only: 1,
+        groupby: "year"
+      },
+      {
+        name: "mint",
+        interval: "dly",
+        duration: "dly",
+        smry: { reduce: "min" },
+        normal: 1,
+        smry_only: 1,
+        groupby: "year"
+      },
+    ]
+  };
+
+  var params = {
+    method: "post",
+    contentType: "application/x-www-form-urlencoded",
+    payload: "params=" + encodeURIComponent(JSON.stringify(input_dict)),
+    headers: { Accept: "application/json" }
+  };
+
+  var url = "https://data.rcc-acis.org/StnData";
+
+  var retry_policy = [
+    new Error("Could not fetch records for " + site)
+  ];
+
+  var retry_decorator = retryDecorator(5, retry_policy);
+
+  var fetchRecords = function () {
+    var response = UrlFetchApp.fetch(url, params);
+    var data = JSON.parse(response.getContentText());
+    return data;
+  };
+
+  try {
+    var b = retry_decorator(fetchRecords);
+  } catch (e) {
+    console.log("!!!COULD NOT FETCH RECORDS FOR " + site + "!!!");
+    throw e;
+  }
+
+  this.stn_name = b.meta.name;
+
+  if (thr_tag == 1) {
+    lat = ll[1];
+    lon = ll[0];
+  } else if (thr_tag == 0) {
+    lat = b.meta.ll[1];
+    lon = b.meta.ll[0];
+  }
+
+  hi_recs = b.smry[0].map(function (item) {
+    return item[0];
+  });
+  hi_yr = b.smry[0].map(function (item) {
+    return item[1].substring(0, 4);
+  });
+  hi_norm = b.smry[1];
+  lo_recs = b.smry[2].map(function (item) {
+    return item[0];
+  });
+  lo_yr = b.smry[2].map(function (item) {
+    return item[1].substring(0, 4);
+  });
+  lo_norm = b.smry[3];
+
+  var rec_dict = [
+    hi_recs,
+    hi_norm,
+    lo_recs,
+    lo_norm,
+    hi_yr,
+    lo_yr,
+  ];
+
+  function isLeapYear(year) {
+    if (year % 4 == 0) {
+      if (year % 100 == 0) {
+        if (year % 400 == 0) {
+          return true;
+        } else {
+          return false;
+        }
+      } else {
+        return true;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  // Logger.log(d1.substring(11, 15))
+  if (isLeapYear(d1.getFullYear()) == false) {
+    for (var i = 0; i < rec_dict.length - 1; i++) {
+      rec_dict[i].splice(59, 1);
+    }
+  }
+  // Logger.log(new Date())
+  // Logger.log(d1)
+
+  var doy = getDOY(d1) - 1;
+  var ind_d = [];
+  var ind_d_loyr = [];
+  for (var j = doy; j < doy + 7; j++) {
+    ind_d.push(j);
+    ind_d_loyr.push(j + 1);
+  }
+
+  hi_recs = hi_recs.filter(function (item, index) {
+    return ind_d.indexOf(index) > -1;
+  });
+  hi_norm = hi_norm.filter(function (item, index) {
+    return ind_d.indexOf(index) > -1;
+  });
+  lo_recs = lo_recs.filter(function (item, index) {
+    return ind_d.indexOf(index) > -1;
+  });
+  lo_norm = lo_norm.filter(function (item, index) {
+    return ind_d.indexOf(index) > -1;
+  });
+  hi_yr = hi_yr.filter(function (item, index) {
+    return ind_d.indexOf(index) > -1;
+  });
+  lo_yr = lo_yr.filter(function (item, index) {
+    return ind_d_loyr.indexOf(index) > -1;
+  });
+  return {
+    hi_recs,
+    hi_yr,
+    lo_recs,
+    lo_yr,
+    hi_norm,
+    lo_norm
+  }
+  // console.log("Retrieved Records for " + site + ".");
+}
+
+// Utility function to implement retry mechanism
+function retryDecorator(maxAttempts, retryPolicy) {
+  return function (func) {
+    for (var i = 0; i < maxAttempts; i++) {
+      try {
+        return func();
+      } catch (error) {
+        if (i < maxAttempts - 1 && retryPolicy.indexOf(error) > -1) {
+          console.log("Retrying... Attempt " + (i + 2));
+          Utilities.sleep(1000); // Wait for 1 second before retrying
+        } else {
+          throw error;
+        }
+      }
+    }
+  };
+}
+
+function getDOY() {
+  var currentDate = new Date();
+  var dayOfYear = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), 'D');
+  return parseInt(dayOfYear);
+}
