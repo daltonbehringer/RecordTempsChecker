@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>RER Creator</title>
+    <script>
+      window.onload = function() {
+        google.script.run
+          .withSuccessHandler(function(dates) {
+            const dropdown = document.getElementById("dateDropdown");
+            dates.forEach((date) => {
+              const option = document.createElement("option");
+              option.value = date;
+              option.text = date;
+              dropdown.add(option);
+            });
+          })
+          .getFcstDates();
+
+        // Event listener for "Go" button
+        document.getElementById("goButton").addEventListener("click", function() {
+          var selectedDate = document.getElementById("dateDropdown").value;
+          // Fetch selected radio button
+          var radios = document.getElementsByName("highLow");
+          var selectedRadio;
+          for (var i = 0, length = radios.length; i < length; i++) {
+            if (radios[i].checked) {
+              selectedRadio = radios[i].value;
+              break;
+            }
+          }
+          google.script.run
+            .withSuccessHandler(function() {
+              // handle success (e.g., display a success message)
+            })
+            .withFailureHandler(function() {
+              // handle failure (e.g., display an error message)
+            })
+            .createNewSheetWithDate(selectedDate, selectedRadio);
+        });
+      };
+    </script>
+  </head>  
+  <body>
+    <h3>Select a Date and Record Type</h3>
+    <select id="dateDropdown">
+      <!-- auto populated -->
+    </select>
+    <br>
+    <br>
+    <input type="radio" id="high" name="highLow" value="High">
+    <label for="high">High</label>
+    <input type="radio" id="low" name="highLow" value="Low">
+    <label for="low">Low</label>
+    <br>
+    <br>
+    <button id="goButton">Go</button>
+  </body>
+</html>
